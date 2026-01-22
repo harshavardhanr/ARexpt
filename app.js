@@ -315,8 +315,22 @@ class VRPassthroughDancer {
 
     async startXRSession() {
         const statusDiv = document.getElementById('status');
+        const startButton = document.getElementById('startButton');
+
+        // Disable button to prevent double-clicks
+        startButton.disabled = true;
+        statusDiv.textContent = 'Starting VR session...';
 
         try {
+            // End any existing session first
+            if (this.xrSession) {
+                console.log('Ending existing XR session...');
+                await this.xrSession.end();
+                this.xrSession = null;
+                // Wait a bit for the session to fully close
+                await new Promise(resolve => setTimeout(resolve, 100));
+            }
+
             // Use immersive-ar for passthrough (Quest MR mode) or fall back to immersive-vr
             const sessionMode = this.preferredMode || 'immersive-vr';
 
@@ -380,8 +394,11 @@ class VRPassthroughDancer {
             console.error('Error starting XR session:', error);
             statusDiv.textContent = 'Error starting VR: ' + error.message;
 
+            // Re-enable button on error
+            startButton.disabled = false;
+
             // Try fallback to immersive-vr if AR failed
-            if (this.preferredMode === 'immersive-ar') {
+            if (this.preferredMode === 'immersive-ar' && !error.message.includes('already an active')) {
                 console.log('Falling back to immersive-vr...');
                 this.preferredMode = 'immersive-vr';
                 setTimeout(() => this.startXRSession(), 1000);
@@ -393,8 +410,18 @@ class VRPassthroughDancer {
         this.xrSession = null;
         this.hitTestSource = null;
         this.hitTestSourceRequested = false;
+        this.isPlaced = false;
+
+        // Re-enable the button and show UI
+        const startButton = document.getElementById('startButton');
+        if (startButton) {
+            startButton.disabled = false;
+        }
+
         document.getElementById('info').style.display = 'block';
         document.getElementById('status').textContent = 'Session ended. Click Enter VR to restart.';
+
+        console.log('XR session ended');
     }
 
     async onSelect(event) {
