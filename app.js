@@ -138,17 +138,6 @@ class VRPassthroughDancer {
         ring.position.y = 0.035;
         group.add(ring);
 
-        // Add a bright test sphere to ensure rendering works
-        const testSphereGeometry = new THREE.SphereGeometry(0.05, 32, 32);
-        const testSphereMaterial = new THREE.MeshBasicMaterial({
-            color: 0xff0000,
-            emissive: 0xff0000,
-            emissiveIntensity: 1
-        });
-        const testSphere = new THREE.Mesh(testSphereGeometry, testSphereMaterial);
-        testSphere.position.y = 0.15; // Floating above platform
-        group.add(testSphere);
-
         group.visible = false;
         this.platform = group;
         this.scene.add(this.platform);
@@ -306,6 +295,9 @@ class VRPassthroughDancer {
         const startButton = document.getElementById('startButton');
         startButton.addEventListener('click', () => this.startXRSession());
 
+        const repositionButton = document.getElementById('repositionButton');
+        repositionButton.addEventListener('click', () => this.enableRepositioning());
+
         window.addEventListener('resize', () => {
             this.camera.aspect = window.innerWidth / window.innerHeight;
             this.camera.updateProjectionMatrix();
@@ -384,10 +376,16 @@ class VRPassthroughDancer {
             console.log('Session mode:', sessionMode);
             console.log('Renderer info:', this.renderer.info);
 
+            // Show reposition button in VR
+            const repositionButton = document.getElementById('repositionButton');
+            if (repositionButton) {
+                repositionButton.style.display = 'block';
+            }
+
             if (sessionMode === 'immersive-ar') {
-                statusDiv.textContent = 'Passthrough active! Point and click to reposition dancer';
+                statusDiv.textContent = 'Passthrough active! Point and click to place dancer';
             } else {
-                statusDiv.textContent = 'VR Mode - Point and click to reposition dancer';
+                statusDiv.textContent = 'VR Mode - Point and click to place dancer';
             }
 
         } catch (error) {
@@ -418,6 +416,12 @@ class VRPassthroughDancer {
             startButton.disabled = false;
         }
 
+        // Hide reposition button
+        const repositionButton = document.getElementById('repositionButton');
+        if (repositionButton) {
+            repositionButton.style.display = 'none';
+        }
+
         document.getElementById('info').style.display = 'block';
         document.getElementById('status').textContent = 'Session ended. Click Enter VR to restart.';
 
@@ -431,11 +435,18 @@ class VRPassthroughDancer {
             this.platform.visible = true;
             this.dancer.visible = true;
             this.isPlaced = true;
+            this.reticle.visible = false; // Hide reticle after placement
             console.log('Dancer placed at:', this.reticle.position);
         } else if (!this.isPlaced) {
             // If no reticle but not placed, place at default position
             this.placeAtDefaultPosition();
         }
+    }
+
+    enableRepositioning() {
+        // Allow user to reposition the dancer
+        this.isPlaced = false;
+        console.log('Repositioning enabled');
     }
 
     async requestHitTestSource() {
@@ -506,36 +517,41 @@ class VRPassthroughDancer {
                            'Platform pos:', this.platform.position);
             }
 
-            // Always show hit-test reticle for positioning/repositioning
-            // Request hit test source if not already requested
-            if (!this.hitTestSource && !this.hitTestSourceRequested) {
-                this.requestHitTestSource();
-            }
-
-            // Perform hit testing
-            if (this.hitTestSource && pose) {
-                const hitTestResults = frame.getHitTestResults(this.hitTestSource);
-
-                if (hitTestResults.length > 0) {
-                    const hit = hitTestResults[0];
-                    const hitPose = hit.getPose(this.xrRefSpace);
-
-                    if (hitPose) {
-                        this.reticle.visible = true;
-                        this.reticle.position.copy(hitPose.transform.position);
-
-                        // Orient reticle to surface
-                        const orientation = hitPose.transform.orientation;
-                        this.reticle.quaternion.set(
-                            orientation.x,
-                            orientation.y,
-                            orientation.z,
-                            orientation.w
-                        );
-                    }
-                } else {
-                    this.reticle.visible = false;
+            // Show hit-test reticle only when not placed
+            if (!this.isPlaced) {
+                // Request hit test source if not already requested
+                if (!this.hitTestSource && !this.hitTestSourceRequested) {
+                    this.requestHitTestSource();
                 }
+
+                // Perform hit testing
+                if (this.hitTestSource && pose) {
+                    const hitTestResults = frame.getHitTestResults(this.hitTestSource);
+
+                    if (hitTestResults.length > 0) {
+                        const hit = hitTestResults[0];
+                        const hitPose = hit.getPose(this.xrRefSpace);
+
+                        if (hitPose) {
+                            this.reticle.visible = true;
+                            this.reticle.position.copy(hitPose.transform.position);
+
+                            // Orient reticle to surface
+                            const orientation = hitPose.transform.orientation;
+                            this.reticle.quaternion.set(
+                                orientation.x,
+                                orientation.y,
+                                orientation.z,
+                                orientation.w
+                            );
+                        }
+                    } else {
+                        this.reticle.visible = false;
+                    }
+                }
+            } else {
+                // Hide reticle when already placed
+                this.reticle.visible = false;
             }
         } else {
             // Non-VR rendering (desktop preview)
