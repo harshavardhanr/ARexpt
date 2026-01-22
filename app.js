@@ -18,6 +18,7 @@ class VRPassthroughDancer {
         this.clock = new THREE.Clock();
         this.isPlaced = false;
         this.controls = null;
+        this.preferredMode = 'immersive-vr'; // Will be updated based on device capabilities
 
         this.init();
     }
@@ -36,7 +37,9 @@ class VRPassthroughDancer {
 
     setupScene() {
         this.scene = new THREE.Scene();
-        this.scene.background = new THREE.Color(0x111111);
+        // Set background to null for passthrough transparency
+        // Will show dark color in desktop mode, but transparent in VR passthrough
+        this.scene.background = null;
 
         this.camera = new THREE.PerspectiveCamera(
             75,
@@ -232,17 +235,25 @@ class VRPassthroughDancer {
         }
 
         try {
-            const supported = await navigator.xr.isSessionSupported('immersive-vr');
-            if (supported) {
-                statusDiv.textContent = 'Ready! Click "Enter VR" to start.';
+            // Check for immersive-ar (MR/passthrough mode) first, then fall back to VR
+            const arSupported = await navigator.xr.isSessionSupported('immersive-ar');
+            const vrSupported = await navigator.xr.isSessionSupported('immersive-vr');
+
+            if (arSupported) {
+                statusDiv.textContent = 'Ready! MR/Passthrough mode available.';
                 startButton.disabled = false;
+                this.preferredMode = 'immersive-ar';
+            } else if (vrSupported) {
+                statusDiv.textContent = 'Ready! VR mode (no passthrough).';
+                startButton.disabled = false;
+                this.preferredMode = 'immersive-vr';
             } else {
-                statusDiv.textContent = 'VR not supported on this device';
+                statusDiv.textContent = 'XR not supported on this device';
                 startButton.disabled = true;
             }
         } catch (error) {
             console.error('Error checking XR support:', error);
-            statusDiv.textContent = 'Error checking VR support';
+            statusDiv.textContent = 'Error checking XR support';
             startButton.disabled = true;
         }
     }
@@ -262,21 +273,32 @@ class VRPassthroughDancer {
         const statusDiv = document.getElementById('status');
 
         try {
-            // Request VR session with passthrough
-            this.xrSession = await navigator.xr.requestSession('immersive-vr', {
+            // Use immersive-ar for passthrough (Quest MR mode) or fall back to immersive-vr
+            const sessionMode = this.preferredMode || 'immersive-vr';
+
+            const sessionInit = {
                 requiredFeatures: ['local-floor'],
-                optionalFeatures: ['hit-test', 'hand-tracking'],
-                // Request passthrough mode - this enables the camera feed
-                environmentBlendMode: 'additive'
+                optionalFeatures: ['hit-test', 'hand-tracking', 'layers', 'dom-overlay'],
+            };
+
+            // Add DOM overlay if available
+            if (sessionInit.optionalFeatures.includes('dom-overlay')) {
+                sessionInit.domOverlay = { root: document.body };
+            }
+
+            console.log(`Requesting ${sessionMode} session...`);
+            this.xrSession = await navigator.xr.requestSession(sessionMode, sessionInit);
+            console.log(`${sessionMode} session started successfully`);
+
+            // Setup WebGL layer with alpha for transparency
+            const gl = this.renderer.getContext();
+            const baseLayer = new XRWebGLLayer(this.xrSession, gl, {
+                alpha: true,
+                antialias: true
             });
 
-            // Enable passthrough
-            const baseLayer = new XRWebGLLayer(this.xrSession, this.renderer.getContext());
-
             await this.xrSession.updateRenderState({
-                baseLayer: baseLayer,
-                // Try to enable passthrough
-                layers: [baseLayer]
+                baseLayer: baseLayer
             });
 
             this.xrRefSpace = await this.xrSession.requestReferenceSpace('local-floor');
@@ -286,14 +308,28 @@ class VRPassthroughDancer {
 
             this.renderer.xr.setSession(this.xrSession);
 
+            // Ensure scene background is transparent for passthrough
+            this.scene.background = null;
+
             // Hide info panel in VR
             document.getElementById('info').style.display = 'none';
 
-            statusDiv.textContent = 'In VR - point at table and click trigger to place dancer';
+            if (sessionMode === 'immersive-ar') {
+                statusDiv.textContent = 'MR Mode - point at table and click trigger to place';
+            } else {
+                statusDiv.textContent = 'VR Mode - click trigger to place dancer';
+            }
 
         } catch (error) {
             console.error('Error starting XR session:', error);
             statusDiv.textContent = 'Error starting VR: ' + error.message;
+
+            // Try fallback to immersive-vr if AR failed
+            if (this.preferredMode === 'immersive-ar') {
+                console.log('Falling back to immersive-vr...');
+                this.preferredMode = 'immersive-vr';
+                setTimeout(() => this.startXRSession(), 1000);
+            }
         }
     }
 
