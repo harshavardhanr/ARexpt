@@ -71,11 +71,14 @@ class VRPassthroughDancer {
             color: 0x00ff00,
             side: THREE.DoubleSide,
             transparent: true,
-            opacity: 0.8
+            opacity: 0.8,
+            depthTest: true,
+            depthWrite: true
         });
         this.reticle = new THREE.Mesh(geometry, material);
         this.reticle.rotation.x = -Math.PI / 2;
         this.reticle.visible = false;
+        this.reticle.renderOrder = 1;
 
         // Add a center dot to make it more visible
         const dotGeometry = new THREE.CircleGeometry(0.05, 32);
@@ -83,13 +86,16 @@ class VRPassthroughDancer {
             color: 0xffff00,
             side: THREE.DoubleSide,
             transparent: true,
-            opacity: 0.6
+            opacity: 0.6,
+            depthTest: true,
+            depthWrite: true
         });
         const dot = new THREE.Mesh(dotGeometry, dotMaterial);
         dot.rotation.x = -Math.PI / 2;
         this.reticle.add(dot);
 
         this.scene.add(this.reticle);
+        console.log('Reticle created');
     }
 
     createPlatform() {
@@ -132,9 +138,21 @@ class VRPassthroughDancer {
         ring.position.y = 0.035;
         group.add(ring);
 
+        // Add a bright test sphere to ensure rendering works
+        const testSphereGeometry = new THREE.SphereGeometry(0.05, 32, 32);
+        const testSphereMaterial = new THREE.MeshBasicMaterial({
+            color: 0xff0000,
+            emissive: 0xff0000,
+            emissiveIntensity: 1
+        });
+        const testSphere = new THREE.Mesh(testSphereGeometry, testSphereMaterial);
+        testSphere.position.y = 0.15; // Floating above platform
+        group.add(testSphere);
+
         group.visible = false;
         this.platform = group;
         this.scene.add(this.platform);
+        console.log('Platform created and added to scene');
     }
 
     async loadDancer() {
@@ -172,6 +190,9 @@ class VRPassthroughDancer {
 
             this.dancer.visible = false;
             this.platform.add(this.dancer);
+
+            console.log('Dancer loaded successfully and added to platform');
+            console.log('Dancer children count:', this.dancer.children.length);
 
             statusDiv.textContent = 'Ready to enter VR!';
 
@@ -225,12 +246,17 @@ class VRPassthroughDancer {
     setupRenderer() {
         this.renderer = new THREE.WebGLRenderer({
             antialias: true,
-            alpha: true
+            alpha: true,
+            preserveDrawingBuffer: true
         });
         this.renderer.setSize(window.innerWidth, window.innerHeight);
         this.renderer.setPixelRatio(window.devicePixelRatio);
         this.renderer.xr.enabled = true;
         this.renderer.shadowMap.enabled = true;
+
+        // Ensure proper rendering with passthrough
+        this.renderer.autoClear = true;
+        this.renderer.sortObjects = true;
 
         document.body.appendChild(this.renderer.domElement);
 
@@ -238,6 +264,8 @@ class VRPassthroughDancer {
         this.controls = new OrbitControls(this.camera, this.renderer.domElement);
         this.controls.target.set(0, 1, -1);
         this.controls.update();
+
+        console.log('Renderer setup complete');
     }
 
     async checkXRSupport() {
@@ -335,7 +363,12 @@ class VRPassthroughDancer {
 
             // Auto-place dancer in front of user for immediate visibility
             // User can reposition by pointing and clicking
+            console.log('XR session started, placing dancer...');
+            console.log('Scene children before placement:', this.scene.children.length);
             this.placeAtDefaultPosition();
+
+            console.log('Session mode:', sessionMode);
+            console.log('Renderer info:', this.renderer.info);
 
             if (sessionMode === 'immersive-ar') {
                 statusDiv.textContent = 'Passthrough active! Point and click to reposition dancer';
@@ -397,9 +430,18 @@ class VRPassthroughDancer {
         // Place 1 meter in front and at table height (lower)
         this.platform.position.set(0, 0.3, -1);
         this.platform.visible = true;
-        this.dancer.visible = true;
+
+        if (this.dancer) {
+            this.dancer.visible = true;
+            console.log('Dancer visible:', this.dancer.visible, 'at position:', this.platform.position);
+        } else {
+            console.warn('Dancer not loaded yet!');
+        }
+
         // Don't set isPlaced yet - allow user to reposition with hit-test
-        console.log('Dancer placed at default position - point and click to reposition');
+        console.log('Platform placed at:', this.platform.position);
+        console.log('Platform visible:', this.platform.visible);
+        console.log('Platform children count:', this.platform.children.length);
     }
 
     animate() {
@@ -429,6 +471,13 @@ class VRPassthroughDancer {
         if (frame && this.xrSession) {
             // VR rendering
             const pose = frame.getViewerPose(this.xrRefSpace);
+
+            // Debug logging every 60 frames (approx once per second at 60fps)
+            if (Math.floor(time / 1000) % 1 === 0 && Math.floor(time) % 1000 < 20) {
+                console.log('VR frame - Platform visible:', this.platform.visible,
+                           'Dancer visible:', this.dancer ? this.dancer.visible : 'no dancer',
+                           'Platform pos:', this.platform.position);
+            }
 
             // Always show hit-test reticle for positioning/repositioning
             // Request hit test source if not already requested
