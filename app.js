@@ -19,6 +19,7 @@ class VRPassthroughDancer {
         this.isPlaced = false;
         this.controls = null;
         this.preferredMode = 'immersive-vr'; // Will be updated based on device capabilities
+        this.xButtonPressed = false; // Track X button state
 
         this.init();
     }
@@ -295,9 +296,6 @@ class VRPassthroughDancer {
         const startButton = document.getElementById('startButton');
         startButton.addEventListener('click', () => this.startXRSession());
 
-        const repositionButton = document.getElementById('repositionButton');
-        repositionButton.addEventListener('click', () => this.enableRepositioning());
-
         window.addEventListener('resize', () => {
             this.camera.aspect = window.innerWidth / window.innerHeight;
             this.camera.updateProjectionMatrix();
@@ -376,16 +374,10 @@ class VRPassthroughDancer {
             console.log('Session mode:', sessionMode);
             console.log('Renderer info:', this.renderer.info);
 
-            // Show reposition button in VR
-            const repositionButton = document.getElementById('repositionButton');
-            if (repositionButton) {
-                repositionButton.style.display = 'block';
-            }
-
             if (sessionMode === 'immersive-ar') {
-                statusDiv.textContent = 'Passthrough active! Point and click to place dancer';
+                statusDiv.textContent = 'Passthrough active! Point and click to place. Press X to reposition.';
             } else {
-                statusDiv.textContent = 'VR Mode - Point and click to place dancer';
+                statusDiv.textContent = 'VR Mode - Point and click to place. Press X to reposition.';
             }
 
         } catch (error) {
@@ -414,12 +406,6 @@ class VRPassthroughDancer {
         const startButton = document.getElementById('startButton');
         if (startButton) {
             startButton.disabled = false;
-        }
-
-        // Hide reposition button
-        const repositionButton = document.getElementById('repositionButton');
-        if (repositionButton) {
-            repositionButton.style.display = 'none';
         }
 
         document.getElementById('info').style.display = 'block';
@@ -509,6 +495,32 @@ class VRPassthroughDancer {
         if (frame && this.xrSession) {
             // VR rendering
             const pose = frame.getViewerPose(this.xrRefSpace);
+
+            // Check for X button press on controllers
+            const inputSources = this.xrSession.inputSources;
+            let xButtonCurrentlyPressed = false;
+
+            for (const inputSource of inputSources) {
+                if (inputSource.gamepad) {
+                    // Button 4 is typically X on left controller or A on right controller
+                    // Button 5 is typically Y on left controller or B on right controller
+                    if (inputSource.gamepad.buttons[4] && inputSource.gamepad.buttons[4].pressed) {
+                        xButtonCurrentlyPressed = true;
+                        break;
+                    }
+                    if (inputSource.gamepad.buttons[5] && inputSource.gamepad.buttons[5].pressed) {
+                        xButtonCurrentlyPressed = true;
+                        break;
+                    }
+                }
+            }
+
+            // Detect button press (not held) and enable repositioning
+            if (xButtonCurrentlyPressed && !this.xButtonPressed) {
+                console.log('X button pressed - enabling repositioning');
+                this.enableRepositioning();
+            }
+            this.xButtonPressed = xButtonCurrentlyPressed;
 
             // Debug logging every 60 frames (approx once per second at 60fps)
             if (Math.floor(time / 1000) % 1 === 0 && Math.floor(time) % 1000 < 20) {
