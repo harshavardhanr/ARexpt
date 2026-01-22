@@ -336,7 +336,7 @@ class VRPassthroughDancer {
 
             const sessionInit = {
                 requiredFeatures: ['local-floor'],
-                optionalFeatures: ['hit-test', 'hand-tracking', 'layers', 'dom-overlay'],
+                optionalFeatures: ['hit-test', 'hand-tracking', 'dom-overlay'],
             };
 
             // Add DOM overlay if available
