@@ -1,0 +1,414 @@
+import * as THREE from 'three';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+class VRPassthroughDancer {
+    constructor() {
+        this.scene = null;
+        this.camera = null;
+        this.renderer = null;
+        this.xrSession = null;
+        this.xrRefSpace = null;
+        this.hitTestSource = null;
+        this.hitTestSourceRequested = false;
+        this.reticle = null;
+        this.platform = null;
+        this.dancer = null;
+        this.mixer = null;
+        this.clock = new THREE.Clock();
+        this.isPlaced = false;
+        this.controls = null;
+
+        this.init();
+    }
+
+    async init() {
+        this.setupScene();
+        this.setupLights();
+        this.createReticle();
+        this.createPlatform();
+        await this.loadDancer();
+        this.setupRenderer();
+        this.checkXRSupport();
+        this.setupEventListeners();
+        this.animate();
+    }
+
+    setupScene() {
+        this.scene = new THREE.Scene();
+        this.scene.background = new THREE.Color(0x111111);
+
+        this.camera = new THREE.PerspectiveCamera(
+            75,
+            window.innerWidth / window.innerHeight,
+            0.01,
+            100
+        );
+        this.camera.position.set(0, 1.6, 0);
+    }
+
+    setupLights() {
+        const ambientLight = new THREE.AmbientLight(0xffffff, 0.8);
+        this.scene.add(ambientLight);
+
+        const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
+        directionalLight.position.set(1, 2, 1);
+        directionalLight.castShadow = true;
+        this.scene.add(directionalLight);
+
+        const fillLight = new THREE.DirectionalLight(0xffffff, 0.3);
+        fillLight.position.set(-1, 1, -1);
+        this.scene.add(fillLight);
+    }
+
+    createReticle() {
+        const geometry = new THREE.RingGeometry(0.08, 0.1, 32);
+        const material = new THREE.MeshBasicMaterial({
+            color: 0x00ff00,
+            side: THREE.DoubleSide
+        });
+        this.reticle = new THREE.Mesh(geometry, material);
+        this.reticle.rotation.x = -Math.PI / 2;
+        this.reticle.visible = false;
+        this.scene.add(this.reticle);
+    }
+
+    createPlatform() {
+        const group = new THREE.Group();
+
+        // Main platform cylinder
+        const platformGeometry = new THREE.CylinderGeometry(0.15, 0.18, 0.05, 32);
+        const platformMaterial = new THREE.MeshStandardMaterial({
+            color: 0x2c3e50,
+            metalness: 0.6,
+            roughness: 0.4
+        });
+        const platformMesh = new THREE.Mesh(platformGeometry, platformMaterial);
+        platformMesh.castShadow = true;
+        platformMesh.receiveShadow = true;
+        group.add(platformMesh);
+
+        // Top surface with different color
+        const topGeometry = new THREE.CylinderGeometry(0.15, 0.15, 0.01, 32);
+        const topMaterial = new THREE.MeshStandardMaterial({
+            color: 0x34495e,
+            metalness: 0.7,
+            roughness: 0.3
+        });
+        const topMesh = new THREE.Mesh(topGeometry, topMaterial);
+        topMesh.position.y = 0.03;
+        group.add(topMesh);
+
+        // Edge ring decoration
+        const ringGeometry = new THREE.TorusGeometry(0.15, 0.01, 16, 32);
+        const ringMaterial = new THREE.MeshStandardMaterial({
+            color: 0x3498db,
+            metalness: 0.8,
+            roughness: 0.2,
+            emissive: 0x3498db,
+            emissiveIntensity: 0.2
+        });
+        const ring = new THREE.Mesh(ringGeometry, ringMaterial);
+        ring.rotation.x = Math.PI / 2;
+        ring.position.y = 0.035;
+        group.add(ring);
+
+        group.visible = false;
+        this.platform = group;
+        this.scene.add(this.platform);
+    }
+
+    async loadDancer() {
+        const loader = new GLTFLoader();
+        const statusDiv = document.getElementById('status');
+
+        try {
+            statusDiv.textContent = 'Loading dancer model...';
+
+            // Try to load riggedhuman1.glb first
+            const gltf = await loader.loadAsync('riggedhuman1.glb');
+
+            this.dancer = gltf.scene;
+
+            // Scale the dancer to fit on the platform (adjust as needed)
+            this.dancer.scale.set(0.15, 0.15, 0.15);
+            this.dancer.position.y = 0.05;
+
+            // Setup animations if available
+            if (gltf.animations && gltf.animations.length > 0) {
+                this.mixer = new THREE.AnimationMixer(this.dancer);
+
+                // Play all animations (or you can choose specific ones)
+                gltf.animations.forEach((clip) => {
+                    const action = this.mixer.clipAction(clip);
+                    action.play();
+                });
+
+                statusDiv.textContent = `Loaded with ${gltf.animations.length} animation(s)`;
+            } else {
+                // Add a simple rotation animation if no animations exist
+                this.dancer.userData.rotate = true;
+                statusDiv.textContent = 'Loaded (no animations found, will rotate)';
+            }
+
+            this.dancer.visible = false;
+            this.platform.add(this.dancer);
+
+            statusDiv.textContent = 'Ready to enter VR!';
+
+        } catch (error) {
+            console.error('Error loading dancer model:', error);
+            statusDiv.textContent = 'Error loading model: ' + error.message;
+
+            // Create a simple placeholder if model fails to load
+            this.createPlaceholderDancer();
+        }
+    }
+
+    createPlaceholderDancer() {
+        // Create a simple humanoid shape as fallback
+        const group = new THREE.Group();
+
+        // Body
+        const bodyGeom = new THREE.CapsuleGeometry(0.03, 0.08, 8, 16);
+        const bodyMat = new THREE.MeshStandardMaterial({ color: 0xff6b6b });
+        const body = new THREE.Mesh(bodyGeom, bodyMat);
+        body.position.y = 0.08;
+        group.add(body);
+
+        // Head
+        const headGeom = new THREE.SphereGeometry(0.025, 16, 16);
+        const head = new THREE.Mesh(headGeom, bodyMat);
+        head.position.y = 0.15;
+        group.add(head);
+
+        // Arms
+        const armGeom = new THREE.CapsuleGeometry(0.01, 0.05, 8, 16);
+        const leftArm = new THREE.Mesh(armGeom, bodyMat);
+        leftArm.position.set(-0.04, 0.1, 0);
+        leftArm.rotation.z = Math.PI / 4;
+        group.add(leftArm);
+
+        const rightArm = new THREE.Mesh(armGeom, bodyMat);
+        rightArm.position.set(0.04, 0.1, 0);
+        rightArm.rotation.z = -Math.PI / 4;
+        group.add(rightArm);
+
+        group.scale.set(0.15, 0.15, 0.15);
+        group.position.y = 0.05;
+        group.userData.rotate = true;
+        group.visible = false;
+
+        this.dancer = group;
+        this.platform.add(this.dancer);
+    }
+
+    setupRenderer() {
+        this.renderer = new THREE.WebGLRenderer({
+            antialias: true,
+            alpha: true
+        });
+        this.renderer.setSize(window.innerWidth, window.innerHeight);
+        this.renderer.setPixelRatio(window.devicePixelRatio);
+        this.renderer.xr.enabled = true;
+        this.renderer.shadowMap.enabled = true;
+
+        document.body.appendChild(this.renderer.domElement);
+
+        // Add orbit controls for desktop preview
+        this.controls = new OrbitControls(this.camera, this.renderer.domElement);
+        this.controls.target.set(0, 1, -1);
+        this.controls.update();
+    }
+
+    async checkXRSupport() {
+        const startButton = document.getElementById('startButton');
+        const statusDiv = document.getElementById('status');
+
+        if (!navigator.xr) {
+            statusDiv.textContent = 'WebXR not supported';
+            startButton.disabled = true;
+            return;
+        }
+
+        try {
+            const supported = await navigator.xr.isSessionSupported('immersive-vr');
+            if (supported) {
+                statusDiv.textContent = 'Ready! Click "Enter VR" to start.';
+                startButton.disabled = false;
+            } else {
+                statusDiv.textContent = 'VR not supported on this device';
+                startButton.disabled = true;
+            }
+        } catch (error) {
+            console.error('Error checking XR support:', error);
+            statusDiv.textContent = 'Error checking VR support';
+            startButton.disabled = true;
+        }
+    }
+
+    setupEventListeners() {
+        const startButton = document.getElementById('startButton');
+        startButton.addEventListener('click', () => this.startXRSession());
+
+        window.addEventListener('resize', () => {
+            this.camera.aspect = window.innerWidth / window.innerHeight;
+            this.camera.updateProjectionMatrix();
+            this.renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+    }
+
+    async startXRSession() {
+        const statusDiv = document.getElementById('status');
+
+        try {
+            // Request VR session with passthrough
+            this.xrSession = await navigator.xr.requestSession('immersive-vr', {
+                requiredFeatures: ['local-floor'],
+                optionalFeatures: ['hit-test', 'hand-tracking'],
+                // Request passthrough mode - this enables the camera feed
+                environmentBlendMode: 'additive'
+            });
+
+            // Enable passthrough
+            const baseLayer = new XRWebGLLayer(this.xrSession, this.renderer.getContext());
+
+            await this.xrSession.updateRenderState({
+                baseLayer: baseLayer,
+                // Try to enable passthrough
+                layers: [baseLayer]
+            });
+
+            this.xrRefSpace = await this.xrSession.requestReferenceSpace('local-floor');
+
+            this.xrSession.addEventListener('end', () => this.onSessionEnded());
+            this.xrSession.addEventListener('select', (event) => this.onSelect(event));
+
+            this.renderer.xr.setSession(this.xrSession);
+
+            // Hide info panel in VR
+            document.getElementById('info').style.display = 'none';
+
+            statusDiv.textContent = 'In VR - point at table and click trigger to place dancer';
+
+        } catch (error) {
+            console.error('Error starting XR session:', error);
+            statusDiv.textContent = 'Error starting VR: ' + error.message;
+        }
+    }
+
+    onSessionEnded() {
+        this.xrSession = null;
+        this.hitTestSource = null;
+        this.hitTestSourceRequested = false;
+        document.getElementById('info').style.display = 'block';
+        document.getElementById('status').textContent = 'Session ended. Click Enter VR to restart.';
+    }
+
+    async onSelect(event) {
+        if (!this.isPlaced && this.reticle.visible) {
+            // Place the platform at the reticle position
+            this.platform.position.copy(this.reticle.position);
+            this.platform.visible = true;
+            this.dancer.visible = true;
+            this.reticle.visible = false;
+            this.isPlaced = true;
+        }
+    }
+
+    async requestHitTestSource() {
+        if (this.hitTestSourceRequested) return;
+        this.hitTestSourceRequested = true;
+
+        try {
+            const session = this.renderer.xr.getSession();
+            const viewerSpace = await session.requestReferenceSpace('viewer');
+            this.hitTestSource = await session.requestHitTestSource({ space: viewerSpace });
+        } catch (error) {
+            console.warn('Hit test not supported:', error);
+            // If hit-test fails, place at a default position
+            this.placeAtDefaultPosition();
+        }
+    }
+
+    placeAtDefaultPosition() {
+        // Place 1 meter in front and slightly down
+        this.platform.position.set(0, 0.5, -1);
+        this.platform.visible = true;
+        this.dancer.visible = true;
+        this.isPlaced = true;
+    }
+
+    animate() {
+        this.renderer.setAnimationLoop((time, frame) => this.render(time, frame));
+    }
+
+    render(time, frame) {
+        const delta = this.clock.getDelta();
+
+        // Update animation mixer
+        if (this.mixer) {
+            this.mixer.update(delta);
+        }
+
+        // Simple rotation animation for models without animations
+        if (this.dancer && this.dancer.userData.rotate && this.dancer.visible) {
+            this.dancer.rotation.y += delta * 0.5;
+        }
+
+        if (frame && this.xrSession) {
+            // VR rendering
+            const pose = frame.getViewerPose(this.xrRefSpace);
+
+            if (!this.isPlaced) {
+                // Request hit test source if not already requested
+                if (!this.hitTestSource && !this.hitTestSourceRequested) {
+                    this.requestHitTestSource();
+                }
+
+                // Perform hit testing
+                if (this.hitTestSource && pose) {
+                    const hitTestResults = frame.getHitTestResults(this.hitTestSource);
+
+                    if (hitTestResults.length > 0) {
+                        const hit = hitTestResults[0];
+                        const hitPose = hit.getPose(this.xrRefSpace);
+
+                        if (hitPose) {
+                            this.reticle.visible = true;
+                            this.reticle.position.copy(hitPose.transform.position);
+
+                            // Orient reticle to surface
+                            const orientation = hitPose.transform.orientation;
+                            this.reticle.quaternion.set(
+                                orientation.x,
+                                orientation.y,
+                                orientation.z,
+                                orientation.w
+                            );
+                        }
+                    } else {
+                        this.reticle.visible = false;
+                    }
+                }
+            }
+        } else {
+            // Non-VR rendering (desktop preview)
+            this.controls.update();
+
+            // Show platform in preview mode
+            if (!this.platform.visible) {
+                this.platform.position.set(0, 0, -1);
+                this.platform.visible = true;
+                this.dancer.visible = true;
+            }
+        }
+
+        this.renderer.render(this.scene, this.camera);
+    }
+}
+
+// Initialize the app when DOM is ready
+window.addEventListener('DOMContentLoaded', () => {
+    new VRPassthroughDancer();
+});
