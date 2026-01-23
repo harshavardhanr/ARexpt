@@ -23,6 +23,8 @@ class VRPassthroughDancer {
         this.audioListener = null;
         this.positionalAudio = null;
         this.audioLoaded = false;
+        this.placard = null;
+        this.placardFadeStartTime = null;
 
         this.init();
     }
@@ -33,6 +35,7 @@ class VRPassthroughDancer {
         this.createReticle();
         this.createPlatform();
         this.setupSpatialAudio();
+        this.loadPlacard();
         await this.loadDancer();
         this.setupRenderer();
         this.checkXRSupport();
@@ -185,6 +188,44 @@ class VRPassthroughDancer {
         // Add the audio to the platform so it moves with it
         this.platform.add(this.positionalAudio);
         console.log('Positional audio created and attached to platform');
+    }
+
+    loadPlacard() {
+        // Load the placard texture
+        const textureLoader = new THREE.TextureLoader();
+        textureLoader.load(
+            'Placard.png',
+            (texture) => {
+                // Create a plane geometry sized based on the texture aspect ratio
+                const aspectRatio = texture.image.width / texture.image.height;
+                const placardHeight = 0.06; // Small height to fit nicely
+                const placardWidth = placardHeight * aspectRatio;
+
+                const geometry = new THREE.PlaneGeometry(placardWidth, placardHeight);
+                const material = new THREE.MeshBasicMaterial({
+                    map: texture,
+                    transparent: true,
+                    opacity: 0, // Start invisible for fade-in
+                    side: THREE.DoubleSide
+                });
+
+                this.placard = new THREE.Mesh(geometry, material);
+
+                // Position in front of platform, slightly elevated
+                this.placard.position.set(0, 0.04, 0.08); // In front and slightly above platform
+                this.placard.rotation.x = -Math.PI / 6; // Tilt down slightly for readability
+
+                this.placard.visible = false; // Hidden until placement
+                this.platform.add(this.placard);
+
+                console.log('Placard loaded successfully');
+            },
+            undefined,
+            (error) => {
+                console.warn('Error loading placard:', error);
+                console.warn('Make sure Placard.png is in the same directory as index.html');
+            }
+        );
     }
 
     async loadDancer() {
@@ -444,6 +485,13 @@ class VRPassthroughDancer {
         this.hitTestSourceRequested = false;
         this.isPlaced = false;
 
+        // Hide placard
+        if (this.placard) {
+            this.placard.visible = false;
+            this.placard.material.opacity = 0;
+            this.placardFadeStartTime = null;
+        }
+
         // Re-enable the button and show UI
         const startButton = document.getElementById('startButton');
         if (startButton) {
@@ -468,6 +516,9 @@ class VRPassthroughDancer {
 
             // Play spatial audio once placed
             this.playAudio();
+
+            // Show and fade in the placard
+            this.showPlacard();
         } else if (!this.isPlaced) {
             // If no reticle but not placed, place at default position
             this.placeAtDefaultPosition();
@@ -480,6 +531,14 @@ class VRPassthroughDancer {
             console.log('Spatial audio started playing');
         } else if (!this.audioLoaded) {
             console.log('Audio not loaded yet');
+        }
+    }
+
+    showPlacard() {
+        if (this.placard) {
+            this.placard.visible = true;
+            this.placardFadeStartTime = performance.now();
+            console.log('Starting placard fade-in');
         }
     }
 
@@ -544,6 +603,22 @@ class VRPassthroughDancer {
             const pulseSpeed = 3;
             const scale = 1 + Math.sin(time / 1000 * pulseSpeed) * 0.2;
             this.reticle.scale.set(scale, scale, scale);
+        }
+
+        // Fade in the placard
+        if (this.placard && this.placard.visible && this.placardFadeStartTime !== null) {
+            const fadeInDuration = 1500; // 1.5 seconds fade in
+            const elapsed = performance.now() - this.placardFadeStartTime;
+            const progress = Math.min(elapsed / fadeInDuration, 1.0);
+
+            // Smooth easing function
+            const easeProgress = progress * (2 - progress); // ease-out
+
+            this.placard.material.opacity = easeProgress;
+
+            if (progress >= 1.0) {
+                this.placardFadeStartTime = null; // Stop animating once complete
+            }
         }
 
         if (frame && this.xrSession) {
