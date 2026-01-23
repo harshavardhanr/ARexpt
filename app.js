@@ -211,8 +211,8 @@ class VRPassthroughDancer {
 
                 this.placard = new THREE.Mesh(geometry, material);
 
-                // Position in front of platform, slightly elevated and 10cm forward
-                this.placard.position.set(0, 0.04, 0.18); // 10cm further forward
+                // Position in front of platform, slightly elevated (original position)
+                this.placard.position.set(0, 0.04, 0.08); // Back to original position
                 // Don't set rotation here - it will be calculated dynamically to face camera
 
                 this.placard.visible = false; // Hidden until placement
@@ -632,6 +632,9 @@ class VRPassthroughDancer {
 
             // Make placard look at the camera (in local space)
             this.placard.lookAt(cameraLocalPos);
+
+            // Rotate 180 degrees around Y axis to fix the inverted orientation
+            this.placard.rotateY(Math.PI);
         }
 
         if (frame && this.xrSession) {
