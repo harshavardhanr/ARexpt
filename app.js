@@ -211,8 +211,8 @@ class VRPassthroughDancer {
 
                 this.placard = new THREE.Mesh(geometry, material);
 
-                // Position in front of platform, slightly elevated
-                this.placard.position.set(0, 0.04, 0.08); // In front and slightly above platform
+                // Position in front of platform, slightly elevated and 10cm forward
+                this.placard.position.set(0, 0.04, 0.18); // 10cm further forward
                 // Don't set rotation here - it will be calculated dynamically to face camera
 
                 this.placard.visible = false; // Hidden until placement
@@ -623,32 +623,15 @@ class VRPassthroughDancer {
 
         // Make placard always face the camera
         if (this.placard && this.placard.visible) {
-            // Get world position of placard
-            const placardWorldPos = new THREE.Vector3();
-            this.placard.getWorldPosition(placardWorldPos);
+            // Get camera position in world space
+            const cameraWorldPos = new THREE.Vector3();
+            this.camera.getWorldPosition(cameraWorldPos);
 
-            // Get camera position
-            const cameraPos = this.camera.position.clone();
+            // Convert camera position to platform's local space
+            const cameraLocalPos = this.platform.worldToLocal(cameraWorldPos.clone());
 
-            // Calculate direction from placard to camera
-            const direction = new THREE.Vector3();
-            direction.subVectors(cameraPos, placardWorldPos).normalize();
-
-            // Create a rotation matrix that looks at the camera
-            const targetQuaternion = new THREE.Quaternion();
-            const lookAtMatrix = new THREE.Matrix4();
-            lookAtMatrix.lookAt(placardWorldPos, cameraPos, new THREE.Vector3(0, 1, 0));
-            targetQuaternion.setFromRotationMatrix(lookAtMatrix);
-
-            // Apply rotation to placard (in world space, then convert to local)
-            const platformWorldQuaternion = new THREE.Quaternion();
-            this.platform.getWorldQuaternion(platformWorldQuaternion);
-
-            // Convert world rotation to local rotation relative to platform
-            const platformInverseQuaternion = platformWorldQuaternion.clone().invert();
-            const localQuaternion = platformInverseQuaternion.multiply(targetQuaternion);
-
-            this.placard.quaternion.copy(localQuaternion);
+            // Make placard look at the camera (in local space)
+            this.placard.lookAt(cameraLocalPos);
         }
 
         if (frame && this.xrSession) {
