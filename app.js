@@ -25,6 +25,7 @@ class VRPassthroughDancer {
         this.audioLoaded = false;
         this.placard = null;
         this.placardFadeStartTime = null;
+        this.raycaster = new THREE.Raycaster();
 
         this.init();
     }
@@ -520,9 +521,6 @@ class VRPassthroughDancer {
 
             // Play spatial audio once placed
             this.playAudio();
-
-            // Show and fade in the placard
-            this.showPlacard();
         } else if (!this.isPlaced) {
             // If no reticle but not placed, place at default position
             this.placeAtDefaultPosition();
@@ -539,16 +537,31 @@ class VRPassthroughDancer {
     }
 
     showPlacard() {
-        if (this.placard) {
+        if (this.placard && !this.placard.visible) {
             this.placard.visible = true;
             this.placardFadeStartTime = performance.now();
             console.log('Starting placard fade-in');
         }
     }
 
+    hidePlacard() {
+        if (this.placard && this.placard.visible) {
+            this.placard.visible = false;
+            this.placard.material.opacity = 0;
+            this.placardFadeStartTime = null;
+            console.log('Hiding placard');
+        }
+    }
+
     enableRepositioning() {
         // Allow user to reposition the dancer
         this.isPlaced = false;
+
+        // Hide placard during repositioning
+        if (this.placard && this.placard.visible) {
+            this.hidePlacard();
+        }
+
         console.log('Repositioning enabled');
     }
 
@@ -676,6 +689,60 @@ class VRPassthroughDancer {
                 this.enableRepositioning();
             }
             this.xButtonPressed = xButtonCurrentlyPressed;
+
+            // Check if controller is pointing at platform and show/hide placard
+            if (this.isPlaced && this.platform.visible) {
+                let pointingAtPlatform = false;
+
+                for (const inputSource of inputSources) {
+                    if (inputSource.targetRayMode === 'tracked-pointer' && inputSource.targetRaySpace) {
+                        // Get the controller pose
+                        const controllerPose = frame.getPose(inputSource.targetRaySpace, this.xrRefSpace);
+
+                        if (controllerPose) {
+                            // Get controller position and direction
+                            const transform = controllerPose.transform;
+                            const origin = new THREE.Vector3(
+                                transform.position.x,
+                                transform.position.y,
+                                transform.position.z
+                            );
+
+                            // Calculate direction from orientation
+                            const orientation = transform.orientation;
+                            const direction = new THREE.Vector3(0, 0, -1);
+                            direction.applyQuaternion(new THREE.Quaternion(
+                                orientation.x,
+                                orientation.y,
+                                orientation.z,
+                                orientation.w
+                            ));
+
+                            // Set up raycaster
+                            this.raycaster.set(origin, direction);
+
+                            // Check intersection with platform and its children
+                            const intersects = this.raycaster.intersectObjects(this.platform.children, true);
+
+                            if (intersects.length > 0) {
+                                pointingAtPlatform = true;
+                                break;
+                            }
+                        }
+                    }
+                }
+
+                // Show/hide placard based on pointing
+                if (pointingAtPlatform) {
+                    if (!this.placard.visible) {
+                        this.showPlacard();
+                    }
+                } else {
+                    if (this.placard.visible) {
+                        this.hidePlacard();
+                    }
+                }
+            }
 
             // Debug logging every 60 frames (approx once per second at 60fps)
             if (Math.floor(time / 1000) % 1 === 0 && Math.floor(time) % 1000 < 20) {
