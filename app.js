@@ -20,6 +20,9 @@ class VRPassthroughDancer {
         this.controls = null;
         this.preferredMode = 'immersive-vr'; // Will be updated based on device capabilities
         this.xButtonPressed = false; // Track X button state
+        this.audioListener = null;
+        this.positionalAudio = null;
+        this.audioLoaded = false;
 
         this.init();
     }
@@ -29,6 +32,7 @@ class VRPassthroughDancer {
         this.setupLights();
         this.createReticle();
         this.createPlatform();
+        this.setupSpatialAudio();
         await this.loadDancer();
         this.setupRenderer();
         this.checkXRSupport();
@@ -49,6 +53,10 @@ class VRPassthroughDancer {
             100
         );
         this.camera.position.set(0, 1.6, 0);
+
+        // Add audio listener to camera for spatial audio
+        this.audioListener = new THREE.AudioListener();
+        this.camera.add(this.audioListener);
     }
 
     setupLights() {
@@ -66,8 +74,8 @@ class VRPassthroughDancer {
     }
 
     createReticle() {
-        // Make a much larger, more visible reticle
-        const geometry = new THREE.RingGeometry(0.15, 0.2, 32);
+        // Make a much larger, more visible reticle (scaled to match smaller objects)
+        const geometry = new THREE.RingGeometry(0.075, 0.1, 32);
         const material = new THREE.MeshBasicMaterial({
             color: 0x00ff00,
             side: THREE.DoubleSide,
@@ -82,7 +90,7 @@ class VRPassthroughDancer {
         this.reticle.renderOrder = 1;
 
         // Add a center dot to make it more visible
-        const dotGeometry = new THREE.CircleGeometry(0.05, 32);
+        const dotGeometry = new THREE.CircleGeometry(0.025, 32);
         const dotMaterial = new THREE.MeshBasicMaterial({
             color: 0xffff00,
             side: THREE.DoubleSide,
@@ -102,8 +110,8 @@ class VRPassthroughDancer {
     createPlatform() {
         const group = new THREE.Group();
 
-        // Main platform cylinder
-        const platformGeometry = new THREE.CylinderGeometry(0.15, 0.18, 0.05, 32);
+        // Main platform cylinder (half size)
+        const platformGeometry = new THREE.CylinderGeometry(0.075, 0.09, 0.025, 32);
         const platformMaterial = new THREE.MeshStandardMaterial({
             color: 0x2c3e50,
             metalness: 0.6,
@@ -114,19 +122,19 @@ class VRPassthroughDancer {
         platformMesh.receiveShadow = true;
         group.add(platformMesh);
 
-        // Top surface with different color
-        const topGeometry = new THREE.CylinderGeometry(0.15, 0.15, 0.01, 32);
+        // Top surface with different color (half size)
+        const topGeometry = new THREE.CylinderGeometry(0.075, 0.075, 0.005, 32);
         const topMaterial = new THREE.MeshStandardMaterial({
             color: 0x34495e,
             metalness: 0.7,
             roughness: 0.3
         });
         const topMesh = new THREE.Mesh(topGeometry, topMaterial);
-        topMesh.position.y = 0.03;
+        topMesh.position.y = 0.015;
         group.add(topMesh);
 
-        // Edge ring decoration
-        const ringGeometry = new THREE.TorusGeometry(0.15, 0.01, 16, 32);
+        // Edge ring decoration (half size)
+        const ringGeometry = new THREE.TorusGeometry(0.075, 0.005, 16, 32);
         const ringMaterial = new THREE.MeshStandardMaterial({
             color: 0x3498db,
             metalness: 0.8,
@@ -136,13 +144,47 @@ class VRPassthroughDancer {
         });
         const ring = new THREE.Mesh(ringGeometry, ringMaterial);
         ring.rotation.x = Math.PI / 2;
-        ring.position.y = 0.035;
+        ring.position.y = 0.0175;
         group.add(ring);
 
         group.visible = false;
         this.platform = group;
         this.scene.add(this.platform);
         console.log('Platform created and added to scene');
+    }
+
+    setupSpatialAudio() {
+        // Create positional audio that will emanate from the platform
+        this.positionalAudio = new THREE.PositionalAudio(this.audioListener);
+
+        // Set up the audio properties for realistic spatial sound
+        this.positionalAudio.setRefDistance(0.5); // Distance at which volume is at max
+        this.positionalAudio.setRolloffFactor(2); // How quickly sound fades with distance
+        this.positionalAudio.setDistanceModel('exponential');
+        this.positionalAudio.setVolume(1.0);
+
+        // Load the audio file
+        const audioLoader = new THREE.AudioLoader();
+        audioLoader.load(
+            'soundtrack.mp4', // You can name your mp4 file this, or change the filename
+            (buffer) => {
+                this.positionalAudio.setBuffer(buffer);
+                this.positionalAudio.setLoop(true);
+                this.audioLoaded = true;
+                console.log('Spatial audio loaded successfully');
+            },
+            (progress) => {
+                console.log('Audio loading:', (progress.loaded / progress.total * 100).toFixed(2) + '%');
+            },
+            (error) => {
+                console.warn('Error loading audio:', error);
+                console.warn('Make sure soundtrack.mp4 is in the same directory as index.html');
+            }
+        );
+
+        // Add the audio to the platform so it moves with it
+        this.platform.add(this.positionalAudio);
+        console.log('Positional audio created and attached to platform');
     }
 
     async loadDancer() {
@@ -157,9 +199,9 @@ class VRPassthroughDancer {
 
             this.dancer = gltf.scene;
 
-            // Scale the dancer to fit on the platform (adjust as needed)
-            this.dancer.scale.set(0.15, 0.15, 0.15);
-            this.dancer.position.y = 0.05;
+            // Scale the dancer to fit on the platform (half size)
+            this.dancer.scale.set(0.075, 0.075, 0.075);
+            this.dancer.position.y = 0.025;
 
             // Setup animations if available
             if (gltf.animations && gltf.animations.length > 0) {
@@ -224,8 +266,8 @@ class VRPassthroughDancer {
         rightArm.rotation.z = -Math.PI / 4;
         group.add(rightArm);
 
-        group.scale.set(0.15, 0.15, 0.15);
-        group.position.y = 0.05;
+        group.scale.set(0.075, 0.075, 0.075);
+        group.position.y = 0.025;
         group.userData.rotate = true;
         group.visible = false;
 
@@ -423,9 +465,21 @@ class VRPassthroughDancer {
             this.isPlaced = true;
             this.reticle.visible = false; // Hide reticle after placement
             console.log('Dancer placed at:', this.reticle.position);
+
+            // Play spatial audio once placed
+            this.playAudio();
         } else if (!this.isPlaced) {
             // If no reticle but not placed, place at default position
             this.placeAtDefaultPosition();
+        }
+    }
+
+    playAudio() {
+        if (this.audioLoaded && this.positionalAudio && !this.positionalAudio.isPlaying) {
+            this.positionalAudio.play();
+            console.log('Spatial audio started playing');
+        } else if (!this.audioLoaded) {
+            console.log('Audio not loaded yet');
         }
     }
 
