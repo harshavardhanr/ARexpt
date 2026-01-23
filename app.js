@@ -620,9 +620,9 @@ class VRPassthroughDancer {
         const rayLength = hitPoint ? origin.distanceTo(hitPoint) : 2.0;
         const endPoint = hitPoint || origin.clone().add(direction.clone().multiplyScalar(rayLength));
 
-        // Create curved path - control point pulls down slightly for arc
+        // Create curved path - control point pulls up slightly for arc
         const midPoint = new THREE.Vector3().lerpVectors(origin, endPoint, 0.5);
-        midPoint.y -= rayLength * 0.1; // Slight downward curve
+        midPoint.y += rayLength * 0.1; // Slight upward curve
 
         // Create new curve
         const curve = new THREE.QuadraticBezierCurve3(origin, midPoint, endPoint);
