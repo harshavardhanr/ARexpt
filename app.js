@@ -26,6 +26,7 @@ class VRPassthroughDancer {
         this.placard = null;
         this.placardFadeStartTime = null;
         this.raycaster = new THREE.Raycaster();
+        this.controllerRay = null;
 
         this.init();
     }
@@ -35,6 +36,7 @@ class VRPassthroughDancer {
         this.setupLights();
         this.createReticle();
         this.createPlatform();
+        this.createControllerRay();
         this.setupSpatialAudio();
         this.loadPlacard();
         await this.loadDancer();
@@ -155,6 +157,59 @@ class VRPassthroughDancer {
         this.platform = group;
         this.scene.add(this.platform);
         console.log('Platform created and added to scene');
+    }
+
+    createControllerRay() {
+        // Create a curved ray that will be updated each frame
+        // Start with a simple curve - will be updated dynamically
+        const curve = new THREE.QuadraticBezierCurve3(
+            new THREE.Vector3(0, 0, 0),
+            new THREE.Vector3(0, -0.5, -1),
+            new THREE.Vector3(0, -1, -2)
+        );
+
+        // Create tube geometry with tapering (custom radius function)
+        const tubeGeometry = new THREE.TubeGeometry(
+            curve,
+            20, // segments
+            0.002, // radius - will make it taper by scaling
+            8, // radial segments
+            false // closed
+        );
+
+        // Apply tapering by modifying vertices
+        const positions = tubeGeometry.attributes.position;
+        for (let i = 0; i < positions.count; i++) {
+            const segmentIndex = Math.floor(i / 8);
+            const t = segmentIndex / 20; // normalized position along curve
+            const scale = 1 - t * 0.7; // Taper from 100% to 30% thickness
+
+            const x = positions.getX(i);
+            const y = positions.getY(i);
+            const z = positions.getZ(i);
+
+            // Get distance from center axis
+            const centerX = 0;
+            const centerY = curve.getPoint(t).y;
+            const centerZ = curve.getPoint(t).z;
+
+            const dx = x - centerX;
+            const dy = y - centerY;
+
+            positions.setXY(i, centerX + dx * scale, centerY + dy * scale);
+        }
+
+        const rayMaterial = new THREE.MeshBasicMaterial({
+            color: 0xffffff,
+            transparent: true,
+            opacity: 0.6
+        });
+
+        this.controllerRay = new THREE.Mesh(tubeGeometry, rayMaterial);
+        this.controllerRay.visible = false;
+        this.scene.add(this.controllerRay);
+
+        console.log('Controller ray created');
     }
 
     setupSpatialAudio() {
@@ -497,6 +552,11 @@ class VRPassthroughDancer {
             this.placardFadeStartTime = null;
         }
 
+        // Hide controller ray
+        if (this.controllerRay) {
+            this.controllerRay.visible = false;
+        }
+
         // Re-enable the button and show UI
         const startButton = document.getElementById('startButton');
         if (startButton) {
@@ -551,6 +611,65 @@ class VRPassthroughDancer {
             this.placardFadeStartTime = null;
             console.log('Hiding placard');
         }
+    }
+
+    updateControllerRay(origin, direction, hitPoint) {
+        if (!this.controllerRay) return;
+
+        // Calculate end point
+        const rayLength = hitPoint ? origin.distanceTo(hitPoint) : 2.0;
+        const endPoint = hitPoint || origin.clone().add(direction.clone().multiplyScalar(rayLength));
+
+        // Create curved path - control point pulls down slightly for arc
+        const midPoint = new THREE.Vector3().lerpVectors(origin, endPoint, 0.5);
+        midPoint.y -= rayLength * 0.1; // Slight downward curve
+
+        // Create new curve
+        const curve = new THREE.QuadraticBezierCurve3(origin, midPoint, endPoint);
+
+        // Create new tube geometry with tapering
+        const points = curve.getPoints(20);
+        const tubeGeometry = new THREE.TubeGeometry(
+            curve,
+            20,
+            0.002,
+            8,
+            false
+        );
+
+        // Apply tapering
+        const positions = tubeGeometry.attributes.position;
+        for (let i = 0; i < positions.count; i++) {
+            const segmentIndex = Math.floor(i / 8);
+            const t = segmentIndex / 20;
+            const scale = 1 - t * 0.7; // Taper from thick to thin
+
+            // Get point on curve for this segment
+            const curvePoint = curve.getPoint(t);
+
+            // Get current position
+            const x = positions.getX(i);
+            const y = positions.getY(i);
+            const z = positions.getZ(i);
+
+            // Calculate offset from curve center
+            const dx = x - curvePoint.x;
+            const dy = y - curvePoint.y;
+            const dz = z - curvePoint.z;
+
+            // Apply scaling to create taper
+            positions.setXYZ(
+                i,
+                curvePoint.x + dx * scale,
+                curvePoint.y + dy * scale,
+                curvePoint.z + dz * scale
+            );
+        }
+
+        // Update geometry
+        this.controllerRay.geometry.dispose();
+        this.controllerRay.geometry = tubeGeometry;
+        this.controllerRay.visible = true;
     }
 
     enableRepositioning() {
@@ -691,6 +810,8 @@ class VRPassthroughDancer {
             this.xButtonPressed = xButtonCurrentlyPressed;
 
             // Check if controller is pointing at platform and show/hide placard
+            // Also update controller ray visual
+            let controllerFound = false;
             if (this.isPlaced && this.platform.visible) {
                 let pointingAtPlatform = false;
 
@@ -700,6 +821,8 @@ class VRPassthroughDancer {
                         const controllerPose = frame.getPose(inputSource.targetRaySpace, this.xrRefSpace);
 
                         if (controllerPose) {
+                            controllerFound = true;
+
                             // Get controller position and direction
                             const transform = controllerPose.transform;
                             const origin = new THREE.Vector3(
@@ -724,6 +847,9 @@ class VRPassthroughDancer {
                             // Check intersection with platform and its children
                             const intersects = this.raycaster.intersectObjects(this.platform.children, true);
 
+                            // Update controller ray visual
+                            this.updateControllerRay(origin, direction, intersects.length > 0 ? intersects[0].point : null);
+
                             if (intersects.length > 0) {
                                 pointingAtPlatform = true;
                                 break;
@@ -742,6 +868,11 @@ class VRPassthroughDancer {
                         this.hidePlacard();
                     }
                 }
+            }
+
+            // Hide ray if no controller or not placed
+            if (!controllerFound || !this.isPlaced) {
+                this.controllerRay.visible = false;
             }
 
             // Debug logging every 60 frames (approx once per second at 60fps)
