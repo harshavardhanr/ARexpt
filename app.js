@@ -196,6 +196,10 @@ class VRPassthroughDancer {
         textureLoader.load(
             'Placard.png',
             (texture) => {
+                // Flip the texture horizontally to invert the image
+                texture.repeat.x = -1;
+                texture.offset.x = 1;
+
                 // Create a plane geometry sized based on the texture aspect ratio
                 const aspectRatio = texture.image.width / texture.image.height;
                 const placardHeight = 0.024; // Reduced by 60% (was 0.06, now 40% of original)
@@ -218,7 +222,7 @@ class VRPassthroughDancer {
                 this.placard.visible = false; // Hidden until placement
                 this.platform.add(this.placard);
 
-                console.log('Placard loaded successfully (60% smaller)');
+                console.log('Placard loaded successfully (60% smaller, texture flipped)');
             },
             undefined,
             (error) => {
@@ -630,11 +634,17 @@ class VRPassthroughDancer {
             // Convert camera position to platform's local space
             const cameraLocalPos = this.platform.worldToLocal(cameraWorldPos.clone());
 
-            // Make placard look at the camera (in local space)
-            this.placard.lookAt(cameraLocalPos);
+            // Calculate direction from placard to camera in local space
+            const direction = new THREE.Vector3();
+            direction.subVectors(cameraLocalPos, this.placard.position);
+            direction.y = 0; // Keep placard upright
+            direction.normalize();
 
-            // Rotate 180 degrees around Y axis to fix the inverted orientation
-            this.placard.rotateY(Math.PI);
+            // Calculate rotation angle in local space
+            const angle = Math.atan2(direction.x, direction.z);
+
+            // Apply rotation (already accounts for correct facing direction)
+            this.placard.rotation.y = angle;
         }
 
         if (frame && this.xrSession) {
