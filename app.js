@@ -198,7 +198,7 @@ class VRPassthroughDancer {
             (texture) => {
                 // Create a plane geometry sized based on the texture aspect ratio
                 const aspectRatio = texture.image.width / texture.image.height;
-                const placardHeight = 0.06; // Small height to fit nicely
+                const placardHeight = 0.024; // Reduced by 60% (was 0.06, now 40% of original)
                 const placardWidth = placardHeight * aspectRatio;
 
                 const geometry = new THREE.PlaneGeometry(placardWidth, placardHeight);
@@ -213,12 +213,12 @@ class VRPassthroughDancer {
 
                 // Position in front of platform, slightly elevated
                 this.placard.position.set(0, 0.04, 0.08); // In front and slightly above platform
-                this.placard.rotation.x = -Math.PI / 6; // Tilt down slightly for readability
+                // Don't set rotation here - it will be calculated dynamically to face camera
 
                 this.placard.visible = false; // Hidden until placement
                 this.platform.add(this.placard);
 
-                console.log('Placard loaded successfully');
+                console.log('Placard loaded successfully (60% smaller)');
             },
             undefined,
             (error) => {
@@ -619,6 +619,36 @@ class VRPassthroughDancer {
             if (progress >= 1.0) {
                 this.placardFadeStartTime = null; // Stop animating once complete
             }
+        }
+
+        // Make placard always face the camera
+        if (this.placard && this.placard.visible) {
+            // Get world position of placard
+            const placardWorldPos = new THREE.Vector3();
+            this.placard.getWorldPosition(placardWorldPos);
+
+            // Get camera position
+            const cameraPos = this.camera.position.clone();
+
+            // Calculate direction from placard to camera
+            const direction = new THREE.Vector3();
+            direction.subVectors(cameraPos, placardWorldPos).normalize();
+
+            // Create a rotation matrix that looks at the camera
+            const targetQuaternion = new THREE.Quaternion();
+            const lookAtMatrix = new THREE.Matrix4();
+            lookAtMatrix.lookAt(placardWorldPos, cameraPos, new THREE.Vector3(0, 1, 0));
+            targetQuaternion.setFromRotationMatrix(lookAtMatrix);
+
+            // Apply rotation to placard (in world space, then convert to local)
+            const platformWorldQuaternion = new THREE.Quaternion();
+            this.platform.getWorldQuaternion(platformWorldQuaternion);
+
+            // Convert world rotation to local rotation relative to platform
+            const platformInverseQuaternion = platformWorldQuaternion.clone().invert();
+            const localQuaternion = platformInverseQuaternion.multiply(targetQuaternion);
+
+            this.placard.quaternion.copy(localQuaternion);
         }
 
         if (frame && this.xrSession) {
