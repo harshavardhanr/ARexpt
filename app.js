@@ -643,8 +643,8 @@ class VRPassthroughDancer {
             // Calculate rotation angle in local space
             const angle = Math.atan2(direction.x, direction.z);
 
-            // Apply rotation (already accounts for correct facing direction)
-            this.placard.rotation.y = angle;
+            // Apply rotation with 180 degree offset around center
+            this.placard.rotation.y = angle + Math.PI;
         }
 
         if (frame && this.xrSession) {
