@@ -27,6 +27,8 @@ class VRPassthroughDancer {
         this.placardFadeStartTime = null;
         this.raycaster = new THREE.Raycaster();
         this.controllerRay = null;
+        this.uiPanel = null;
+        this.showingLaunchUI = false;
 
         this.init();
     }
@@ -37,6 +39,7 @@ class VRPassthroughDancer {
         this.createReticle();
         this.createPlatform();
         this.createControllerRay();
+        this.createLaunchUI();
         this.setupSpatialAudio();
         this.loadPlacard();
         await this.loadDancer();
@@ -273,12 +276,17 @@ class VRPassthroughDancer {
 
                 // Position in front of platform, slightly elevated (original position)
                 this.placard.position.set(0, 0.04, 0.08); // Back to original position
-                // Don't set rotation here - it will be calculated dynamically to face camera
+
+                // Base rotation tilt for better top-down viewing (20 degrees upward)
+                this.placard.userData.baseTiltX = -Math.PI / 9; // -20 degrees
 
                 this.placard.visible = false; // Hidden until placement
                 this.platform.add(this.placard);
 
-                console.log('Placard loaded successfully (60% smaller, texture flipped)');
+                // Add Next button to placard
+                this.createNextButton();
+
+                console.log('Placard loaded successfully (60% smaller, texture flipped, tilted for top-down view)');
             },
             undefined,
             (error) => {
@@ -286,6 +294,118 @@ class VRPassthroughDancer {
                 console.warn('Make sure Placard.png is in the same directory as index.html');
             }
         );
+    }
+
+    createNextButton() {
+        if (!this.placard) return;
+
+        // Create canvas for button texture
+        const canvas = document.createElement('canvas');
+        canvas.width = 256;
+        canvas.height = 128;
+        const ctx = canvas.getContext('2d');
+
+        // Draw button background
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+        ctx.roundRect(10, 10, 236, 108, 15);
+        ctx.fill();
+
+        // Draw button border
+        ctx.strokeStyle = 'white';
+        ctx.lineWidth = 3;
+        ctx.roundRect(10, 10, 236, 108, 15);
+        ctx.stroke();
+
+        // Draw "Next" text
+        ctx.fillStyle = 'white';
+        ctx.font = 'bold 48px Arial';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText('Next', 128, 64);
+
+        // Create texture from canvas
+        const texture = new THREE.CanvasTexture(canvas);
+
+        // Create button mesh
+        const buttonGeometry = new THREE.PlaneGeometry(0.04, 0.02);
+        const buttonMaterial = new THREE.MeshBasicMaterial({
+            map: texture,
+            transparent: true,
+            side: THREE.DoubleSide
+        });
+
+        this.nextButton = new THREE.Mesh(buttonGeometry, buttonMaterial);
+        this.nextButton.position.set(0, -0.015, 0.001); // Below placard, slightly forward
+        this.nextButton.name = 'nextButton';
+
+        this.placard.add(this.nextButton);
+        console.log('Next button created');
+    }
+
+    createLaunchUI() {
+        // Create canvas for Launch UI
+        const canvas = document.createElement('canvas');
+        canvas.width = 512;
+        canvas.height = 512;
+        const ctx = canvas.getContext('2d');
+
+        // Draw background circle
+        ctx.fillStyle = 'rgba(255, 150, 150, 0.9)';
+        ctx.beginPath();
+        ctx.arc(256, 256, 240, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Draw white dots pattern
+        ctx.fillStyle = 'white';
+        for (let row = 0; row < 8; row++) {
+            for (let col = 0; col < 8; col++) {
+                const x = 80 + col * 52;
+                const y = 80 + row * 52;
+                ctx.beginPath();
+                ctx.arc(x, y, 8, 0, Math.PI * 2);
+                ctx.fill();
+            }
+        }
+
+        // Draw title
+        ctx.fillStyle = 'white';
+        ctx.font = 'bold 40px Arial';
+        ctx.textAlign = 'center';
+        ctx.fillText('Paint the town', 256, 200);
+
+        // Draw artist
+        ctx.font = '28px Arial';
+        ctx.fillText('Doja Cat', 256, 240);
+
+        // Draw Launch button
+        ctx.fillStyle = 'white';
+        ctx.beginPath();
+        ctx.roundRect(156, 300, 200, 60, 30);
+        ctx.fill();
+
+        ctx.fillStyle = 'black';
+        ctx.font = 'bold 32px Arial';
+        ctx.fillText('Launch', 256, 335);
+
+        // Create texture
+        const texture = new THREE.CanvasTexture(canvas);
+
+        // Create UI panel mesh
+        const panelGeometry = new THREE.PlaneGeometry(0.15, 0.15);
+        const panelMaterial = new THREE.MeshBasicMaterial({
+            map: texture,
+            transparent: true,
+            side: THREE.DoubleSide
+        });
+
+        this.uiPanel = new THREE.Mesh(panelGeometry, panelMaterial);
+        this.uiPanel.position.copy(this.placard ? this.placard.position : new THREE.Vector3(0, 0.04, 0.08));
+        this.uiPanel.userData.baseTiltX = -Math.PI / 9; // Same tilt as placard
+        this.uiPanel.name = 'launchUI';
+        this.uiPanel.visible = false;
+
+        this.platform.add(this.uiPanel);
+        console.log('Launch UI created');
     }
 
     async loadDancer() {
@@ -570,6 +690,59 @@ class VRPassthroughDancer {
     }
 
     async onSelect(event) {
+        // Check if user clicked on Next or Launch buttons
+        if (this.isPlaced && event.frame) {
+            const inputSource = event.inputSource;
+            if (inputSource && inputSource.targetRaySpace) {
+                const pose = event.frame.getPose(inputSource.targetRaySpace, this.xrRefSpace);
+
+                if (pose) {
+                    const transform = pose.transform;
+                    const origin = new THREE.Vector3(
+                        transform.position.x,
+                        transform.position.y,
+                        transform.position.z
+                    );
+
+                    const orientation = transform.orientation;
+                    const direction = new THREE.Vector3(0, 0, -1);
+                    direction.applyQuaternion(new THREE.Quaternion(
+                        orientation.x,
+                        orientation.y,
+                        orientation.z,
+                        orientation.w
+                    ));
+
+                    this.raycaster.set(origin, direction);
+
+                    // Check for Next button click
+                    if (this.nextButton && this.nextButton.visible) {
+                        const intersects = this.raycaster.intersectObject(this.nextButton, true);
+                        if (intersects.length > 0) {
+                            console.log('Next button clicked!');
+                            this.transitionToLaunchUI();
+                            return;
+                        }
+                    }
+
+                    // Check for Launch button click
+                    if (this.uiPanel && this.uiPanel.visible) {
+                        const intersects = this.raycaster.intersectObject(this.uiPanel, true);
+                        if (intersects.length > 0) {
+                            // Check if click is in the Launch button area
+                            const uv = intersects[0].uv;
+                            if (uv && uv.x > 0.3 && uv.x < 0.7 && uv.y > 0.4 && uv.y < 0.55) {
+                                console.log('Launch button clicked!');
+                                this.handleLaunchClick();
+                                return;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Original placement logic
         if (this.reticle.visible) {
             // Place or reposition the platform at the reticle position
             this.platform.position.copy(this.reticle.position);
@@ -611,6 +784,59 @@ class VRPassthroughDancer {
             this.placardFadeStartTime = null;
             console.log('Hiding placard');
         }
+    }
+
+    transitionToLaunchUI() {
+        console.log('Transitioning to Launch UI...');
+
+        // Hide dancer
+        if (this.dancer) {
+            this.dancer.visible = false;
+        }
+
+        // Stop music
+        if (this.positionalAudio && this.positionalAudio.isPlaying) {
+            this.positionalAudio.stop();
+            console.log('Music stopped');
+        }
+
+        // Hide placard and Next button
+        if (this.placard) {
+            this.placard.visible = false;
+        }
+
+        // Show Launch UI
+        if (this.uiPanel) {
+            this.uiPanel.visible = true;
+            this.showingLaunchUI = true;
+            console.log('Launch UI shown');
+        }
+    }
+
+    handleLaunchClick() {
+        console.log('Launch clicked - would start new song here');
+        // For now, just reset to dancer view
+        // In a full implementation, this would load a new song and dancer
+
+        // Hide Launch UI
+        if (this.uiPanel) {
+            this.uiPanel.visible = false;
+            this.showingLaunchUI = false;
+        }
+
+        // Show dancer again
+        if (this.dancer) {
+            this.dancer.visible = true;
+        }
+
+        // Restart music
+        if (this.positionalAudio) {
+            this.positionalAudio.play();
+            console.log('Music restarted');
+        }
+
+        // Show placard again when pointing
+        // (it will auto-show via the pointing detection system)
     }
 
     updateControllerRay(origin, direction, hitPoint) {
@@ -757,7 +983,7 @@ class VRPassthroughDancer {
             }
         }
 
-        // Make placard always face the camera
+        // Make placard always face the camera with tilt
         if (this.placard && this.placard.visible) {
             // Get camera position in world space
             const cameraWorldPos = new THREE.Vector3();
@@ -777,6 +1003,38 @@ class VRPassthroughDancer {
 
             // Apply rotation with 180 degree offset around center
             this.placard.rotation.y = angle + Math.PI;
+
+            // Apply base tilt for top-down viewing
+            if (this.placard.userData.baseTiltX !== undefined) {
+                this.placard.rotation.x = this.placard.userData.baseTiltX;
+            }
+        }
+
+        // Make UI panel always face the camera with tilt (same as placard)
+        if (this.uiPanel && this.uiPanel.visible) {
+            // Get camera position in world space
+            const cameraWorldPos = new THREE.Vector3();
+            this.camera.getWorldPosition(cameraWorldPos);
+
+            // Convert camera position to platform's local space
+            const cameraLocalPos = this.platform.worldToLocal(cameraWorldPos.clone());
+
+            // Calculate direction from UI panel to camera in local space
+            const direction = new THREE.Vector3();
+            direction.subVectors(cameraLocalPos, this.uiPanel.position);
+            direction.y = 0; // Keep panel upright
+            direction.normalize();
+
+            // Calculate rotation angle in local space
+            const angle = Math.atan2(direction.x, direction.z);
+
+            // Apply rotation with 180 degree offset around center
+            this.uiPanel.rotation.y = angle + Math.PI;
+
+            // Apply base tilt for top-down viewing
+            if (this.uiPanel.userData.baseTiltX !== undefined) {
+                this.uiPanel.rotation.x = this.uiPanel.userData.baseTiltX;
+            }
         }
 
         if (frame && this.xrSession) {
